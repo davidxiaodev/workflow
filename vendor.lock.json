@@ -43,12 +43,12 @@
       "skills": [
         "grilling",
         "grill-with-docs",
-        "domain-modeling",
+        "codebase-design",
+        "improve-codebase-architecture",
         "to-tickets",
         "tdd",
         "diagnosing-bugs",
-        "improve-codebase-architecture",
-        "codebase-design",
+        "code-review",
         "retro"
       ]
     },
@@ -72,29 +72,6 @@
         "subagent-driven-development (task reviewer)",
         "finishing-a-development-branch",
         "using-superpowers"
-      ]
-    },
-    "agent-skills": {
-      "repo": "https://github.com/addyosmani/agent-skills",
-      "commit": "39b723ceebf81474d0557c1fecd01eddab585563",
-      "version": "0.6.16",
-      "license": "MIT, Copyright (c) 2025 Addy Osmani",
-      "install": "/plugin marketplace add addyosmani/agent-skills && /plugin install agent-skills@addy-agent-skills",
-      "skills": [
-        "interview-me",
-        "spec-driven-development",
-        "planning-and-task-breakdown",
-        "test-driven-development",
-        "debugging-and-error-recovery",
-        "browser-testing-with-devtools",
-        "code-simplification",
-        "security-and-hardening",
-        "performance-optimization"
-      ],
-      "overridden": [
-        "code-review-and-quality",
-        "shipping-and-launch",
-        "using-agent-skills"
       ]
     }
   },

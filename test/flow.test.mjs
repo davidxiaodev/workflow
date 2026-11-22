@@ -25,6 +25,9 @@ Users can only add.
 ## Non-goals
 - Multiplication
 
+## Architecture
+sub lives next to add in src/math.mjs; no new module.
+
 ## Decisions
 - D1 Integers only · keeps parsing simple · David
 
@@ -63,7 +66,8 @@ describe("spec gate", () => {
     const bad = SPEC.replace("Status: agreed", "Status: draft")
       .replace("- Q1 Decimals? → D1", "- Q1 Decimals? · owner: David")
       .replace("- A2 sub(3, 5) returns -2 (S1, S2) · proof: test/run.mjs", "- A2 sub(3, 5) returns -2 (S1, S9)")
-      .replace("- Multiplication\n", "");
+      .replace("- Multiplication\n", "")
+      .replace("sub lives next to add in src/math.mjs; no new module.\n", "");
     const p = checkSpec(parseSpec(bad)).join("\n");
     assert.match(p, /Status is "draft"/);
     assert.match(p, /Q1 is open/);
@@ -71,6 +75,7 @@ describe("spec gate", () => {
     assert.match(p, /A2 cites S9, which is not a goal/);
     assert.match(p, /A2 names no proof/);
     assert.match(p, /no non-goals/);
+    assert.match(p, /no architecture/);
   });
 });
 

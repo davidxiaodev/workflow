@@ -2,49 +2,107 @@
 
 仓库：`davidxiaodev/workflow`。
 
-一个 Claude Code 插件：把一个需求从"说清楚要什么"一路带到"可以合并"，每一步之间都有能真正执行的关卡。
-AI 先说清楚"做成什么样算对"，按项目的约定去做，在独立验证之前不能说"做完了"，并且把每次犯过的错变成下次能自动拦住的检查。
+一套给日常 AI 编码用的轻量工作流（Claude Code 插件）。你只描述要做什么，它决定走哪些步骤、该用哪个 skill、
+什么时候停下来问你；简单的改动保持简单，有风险的改动才严格检查。
 
-人不再逐行读 diff，而是看证据包：验收标准逐条由独立评审标记，机器检查只认真实退出码，合并分档由脚本计算。
+> 让 AI 适应工程流程，而不是让开发者为了用 AI 去适应复杂的流程。
 
-## 整套流程
-
-前端（frontend：用户直接接触的客户端，Web 和 React Native / Expo 移动端）和后端（backend）走同一套流程，只是每一步用的约定、检查和评审方式不同。
-项目里每一个客户端或服务叫一个 **lane**，一个仓库可以有多条，比如 `web`、`app`、`api`，各自标明 `kind` 是 `frontend` 还是 `backend`。
-
-| 步骤 | 做什么 | frontend lane | backend lane |
-| --- | --- | --- | --- |
-| 0 准备 | 每个项目一次：写约定、接检查、加 lint 护栏、标出 `sensitive` 路径 | `docs/design.md` + token 文件 | `docs/backend.md` + 契约文件（OpenAPI 等）+ 迁移目录 |
-| 1 定义（L） | 写规格 `docs/specs/<名字>.md`：问题、目标 `S1…`、不做什么、决定、未决问题，以及整个功能的验收标准；你同意（`Status: agreed`）后才往下走 | 同左 | 同左 |
-| 2 验收标准 | 每条可观察、写明用什么证明，L 的写在规格里并标注对应哪个目标；逐项过一遍异常情况清单；可选写明怎么回滚、能否撤回 | 无效输入、键盘、慢请求、双击提交、390 宽；移动端：大字号、断网、切后台…… | 边界值、越权、重复请求、并发写、下游失败…… |
-| 3 拆任务（L） | `docs/specs/<名字>.tasks.md`：每个任务一个 PR（S 或 M），写明 lane、负责哪几条验收标准、依赖、预估风险档；开工时由脚本生成这个任务的 `.verify/acceptance.md` | 同左 | 同左 |
-| 4 实现 | 按约定做，先写测试；没有依赖关系的任务可以各开一个 worktree 并行做 | 需要时出 3 个结构不同的原型 | 先改契约，再按验收标准一条条先写测试后写实现 |
-| 4′ 调试 | 同一个检查连续两次失败，`run-verify` 就要求停下来先找根因（`shared/debug.md`），根因写进 `.verify/debug.md`，再修 | 同左 | 同左 |
-| 5 机器检查 | `run-verify.mjs` 按 lane 跑，只认真实退出码，遇到第一个失败就停 | 样式、类型、截图 + 可访问性、用户路径（Web 用 Playwright；移动端用模拟器截图 `rn-look.mjs` 和 Maestro） | 类型、单元、真实数据库的集成测试、**负向检查**、契约、迁移、用户路径 |
-| 6 独立评审 | `review-brief.mjs` 写 brief，交给没参与实现的子代理；逐条标记验收标准和触发的清单项；最多 3 轮 | `design-review.md` 看截图，再用前端版 `code-review.md` 看代码（状态、请求竞态、错误态、XSS、可访问性） | `code-review.md` 看 diff，按专项逐一检查，并跑一遍证明关键事实 |
-| 7 证据和分档 | `make-evidence.mjs` 生成证据包：验收标准和机器检查分开写，算合并分档，写明能否撤回、影响范围、怎么回滚 | 前后对比截图、录屏 | 检查日志、负向检查结果、契约与迁移改动 |
-| 8 沉淀 | 评审的 Blocker、回滚、你的纠正，按 `shared/ratchet.md` 变成检查或清单项 | 同左 | 同左 |
-
-入口是 `flow` 技能（`dx-workflow:flow`），它先给改动定大小，再决定走哪些步骤：
-
-| 大小 | 什么时候 | 步骤 |
-| --- | --- | --- |
-| S | 改文案、颜色、一行修复、配置值；不碰契约、迁移、鉴权、原生 | 验收标准 1–3 条 → 实现 → 验证，评审一般是 quick |
-| M | 一两条 lane 内、一个 PR 放得下（约 400 行）的功能或修复，不改契约 | 验收标准 + 异常情况 → 实现 → 验证 |
-| L | 新流程；接口、数据或设计契约变更；迁移；鉴权或支付；原生改动；超过一个 PR；或者还说不清怎样算做完 | 定义 → 规格里的验收标准 → 拆任务 → 每个任务按 M 走 |
-
-步骤之间的关卡是能执行的命令：
+## 快速开始
 
 ```bash
-node <plugin>/scripts/flow-check.mjs spec docs/specs/x.md                 # 规格：你已同意、没有未决问题、每个目标都有验收标准
-node <plugin>/scripts/flow-check.mjs tasks docs/specs/x.tasks.md          # 任务：每条验收标准都有任务负责、没有循环依赖、没有超过 M 的任务
-node <plugin>/scripts/flow-check.mjs next docs/specs/x.tasks.md --done T1 # 现在可以开工的任务
-node <plugin>/scripts/flow-check.mjs acceptance docs/specs/x.md T2 --write # 生成这个任务的 .verify/acceptance.md
+/plugin marketplace add davidxiaodev/workflow
+/plugin install dx-workflow@dx-workflow
 ```
 
-生成的验收文件会带上 `Spec:` 和 `Task:`，证据包和 PR 描述里也会写明，所以评审的每一条标记都能追溯到你同意过的目标。
+在项目里接入一次（从 `package.json`、`pyproject.toml`、`go.mod` 里找出已有的测试、lint、类型检查命令，生成 `.verify/config.json`）：
 
-上线（部署、灰度、监控、回滚）这一步还没做：目前按合并分档决定谁批准合并，之后的流程按你们团队现有的做法。
+```bash
+node <plugin>/scripts/init.mjs
+node <plugin>/scripts/run-verify.mjs --config working   # 在未改动的代码上跑一遍，应该全部通过；然后提交 .verify/config.json
+```
+
+之后就正常提需求，比如"`/workflow` 给订单列表加按日期筛选"，或者直接说需求。设计约定、截图检查、用户路径这些都是需要时再加。
+
+推荐同时安装（装了就会用上，没装也能工作）：
+
+```bash
+/plugin install superpowers@claude-plugins-official          # brainstorming、写计划、TDD、调试、worktree
+/plugin install mattpocock-skills@claude-plugins-official    # grilling、架构、代码质量
+```
+
+## 它怎么工作
+
+```text
+理解 → 计划 → 实现 → 验证 → 完成
+```
+
+两件事决定走哪些步骤，而且分开判断：
+
+**大小**由 AI 从需求判断，决定要做多少计划：
+
+| 大小 | 例子 | 理解 | 计划 | 会写的文件 |
+| --- | --- | --- | --- | --- |
+| Small | 修个 bug、改文案、改样式、一个小函数 | 复述一句 | 不需要 | 不写任何文件 |
+| Medium | 一个功能或修复，一个 PR 放得下 | 有不清楚的才问 1–3 个问题 | 有多个部分时写几条要点 | `.verify/acceptance.md`（不提交） |
+| Large | 新流程、跨模块改动、要拆成多个 PR | brainstorming / grilling | 规格（含简短的架构）+ 任务列表 | `docs/specs/<名字>.md`、`.tasks.md` |
+
+**风险**由脚本从 diff 算出来，决定要验证多严（`node <plugin>/scripts/level.mjs` 随时可以看）：
+
+| 级别 | 什么时候 | 要求 |
+| --- | --- | --- |
+| light | 小改动（默认 ≤40 行、≤3 个文件），什么风险都没碰 | 检查通过就行。不写验收文件、不派评审、不生成证据包 |
+| standard | 其余的改动 | 验收标准 + 检查 + 一次独立评审；证据包自动生成 |
+| strict | 不管多小，只要碰到鉴权、支付、权限、迁移、接口契约、原生配置、`sensitive` 路径，或者改了检查本身 | 再加深度评审和安全检查；合并前由 owner 确认（3 档） |
+
+风险不用配置也能识别：按路径（`auth/`、`payment`、`migrations/`、`.sql`、`.env` 等）和代码内容（Stripe、JWT、bcrypt、`DROP TABLE`、
+`dangerouslySetInnerHTML`、权限判断等）判断；可以在配置的 `risk` 里调整或关掉。所以改动再小，碰了登录也会走严格验证；AI 也没法自称"这是小改动"来跳过。
+
+评审也按改动来：代码评审每次都做；UI 截图评审只在界面相关的文件改了时才做；改了接口契约时检查兼容性；有风险时加安全检查。
+评审最多两轮，还不通过就交给你。
+
+**什么时候停下来问你**：需求有两种理解、猜错代价大；Large 的规格写好了（你同意后才拆任务、写代码）；改动是 strict；诊断之后检查还是失败；
+两轮评审都没通过；正确的修法需要改契约、迁移或原生，而你没提到。其余时候它直接往下做，不会每一步都来问。
+
+大的改动按 `skills/workflow/large.md` 走：规格 → 任务 → 每个任务一个 PR。步骤之间的关卡是能执行的命令
+（`flow-check.mjs spec`、`tasks`、`next`、`acceptance --write`），生成的验收文件带着 `Spec:` 和 `Task:`，
+所以评审的每一条标记都能追溯到你同意过的目标。同一个检查连续两次失败，会要求先找根因再修（`shared/debug.md`）。
+
+## 和 superpowers、Matt Pocock 的 skills 一起用
+
+这个插件负责流程编排和质量保障，不重复实现别人已经做好的能力：
+
+| 步骤 | 交给（装了才用） |
+| --- | --- |
+| 理解大需求 | `superpowers:brainstorming`、`mattpocock-skills:grilling` |
+| 架构 | `mattpocock-skills:codebase-design`、`improve-codebase-architecture` |
+| 计划 | `superpowers:writing-plans`、`mattpocock-skills:to-tickets` |
+| 先写测试 | `superpowers:test-driven-development`、`mattpocock-skills:tdd` |
+| 并行 | `superpowers:using-git-worktrees`、`dispatching-parallel-agents` |
+| 调试 | `superpowers:systematic-debugging`、`mattpocock-skills:diagnosing-bugs` |
+| 代码质量、复盘 | `mattpocock-skills:improve-codebase-architecture`、`code-review`、`retro` |
+
+dx-workflow 自己负责：工作流编排、验证、独立评审、证据包、ratchet。重叠的地方以 dx-workflow 为准（"做完"看 Stop 钩子，
+独立评审看 `review-brief.mjs`，合并看分档），详见 `shared/skill-packs.md`。
+
+上线（部署、灰度、监控、回滚）还没做：目前按合并分档决定谁批准合并，之后按你们团队现有的流程。
+
+---
+
+以下是细节，日常使用不需要读。
+
+## 各 lane 的检查
+
+项目里每一个客户端或服务叫一个 **lane**（比如 `web`、`app`、`api`），标明 `kind` 是 `frontend` 还是 `backend`。
+`init.mjs` 会生成最基本的检查；需要时再加：
+
+| | frontend | backend |
+| --- | --- | --- |
+| 约定 | `docs/design.md` + token 文件（`frontend/setup.md`） | `docs/backend.md` + 契约文件 + 迁移目录（`backend/setup.md`） |
+| 检查 | 写死的样式、类型、lint、截图 + 可访问性、用户路径（Web 用 Playwright） | 类型、lint、单元、真实数据库的集成测试、契约、迁移、用户路径 |
+| 评审 | 有界面改动时看截图（`design-review.md`），代码看 `frontend/code-review.md` | `backend/code-review.md` |
+
+**负向检查**：把这条 lane 里的源码改动退回到基线、保留新测试，再跑一遍测试，测试必须失败。
+测试在没有实现时也能通过，说明它没测到这次改动。
 
 **移动端（React Native / Expo）**：lane 写 `"kind": "frontend", "platform": "react-native"`，默认覆盖全部 JS/TS 代码和
 `app.json`、`ios/`、`android/` 等原生配置。和 Web 的区别：
@@ -63,38 +121,15 @@ node <plugin>/scripts/flow-check.mjs acceptance docs/specs/x.md T2 --write # 生
 **负向检查**：把这条 lane 里的源码改动退回到基线、保留新测试，再跑一遍测试，测试必须失败。
 测试在没有实现时也能通过，说明它没测到这次改动。
 
-## 和其他 skill 包一起用
-
-装了 Matt Pocock 的 skills、superpowers 或 agent-skills 的话，`flow` 会把某些步骤里的具体工作交给它们，
-关卡和作为记录的文件仍以 dx-workflow 为准（详见 `shared/skill-packs.md`）：
-
-| 步骤 | 交给（装了才用） |
-| --- | --- |
-| 定义、访谈 | `mattpocock-skills:grilling` / `grill-with-docs`，`agent-skills:interview-me` / `spec-driven-development`，`superpowers:brainstorming` |
-| 拆任务 | `agent-skills:planning-and-task-breakdown`，`superpowers:writing-plans`，`mattpocock-skills:to-tickets` |
-| 先写测试 | `mattpocock-skills:tdd`，`superpowers:test-driven-development`，`agent-skills:test-driven-development` |
-| 并行 | `superpowers:using-git-worktrees` / `dispatching-parallel-agents` |
-| 调试 | `mattpocock-skills:diagnosing-bugs`，`superpowers:systematic-debugging`，`agent-skills:debugging-and-error-recovery` |
-| 浏览器排查 | `agent-skills:browser-testing-with-devtools` |
-| 架构和清理 | `mattpocock-skills:improve-codebase-architecture` / `codebase-design`，`agent-skills:code-simplification` |
-
-冲突时以 dx-workflow 为准：
-- 规格和任务以 `docs/specs/` 下的文件为准，别的 skill 写到 `docs/superpowers/`、`SPEC.md`、`tasks/todo.md` 或 issue 里的只算草稿；
-- "做完"以 Stop 钩子放行为准，别的 skill 的"测试过了就算完"只是其中一部分；
-- 独立评审以 `review-brief.mjs` 派出的为准，它们的评审只能作为额外的检查；
-- 合并按分档来，证据包出来之前不在本地 merge，也不开可以直接合并的 PR。
-
-安装命令和锁定的版本见 `vendor.lock.json` 的 `routed`。
-
 ## 合并分档
 
 脚本算，不能手动改。
 
 | 分档 | 条件 | 谁要看 |
 | --- | --- | --- |
-| 1 | 检查全过、评审通过、验收标准全部满足，且没有下面的情况 | 扫一眼证据包即可合并 |
+| 1 | light 改动检查全过；或者检查全过、评审通过、验收标准全部满足，且没有下面的情况 | 扫一眼证据包即可合并 |
 | 2 | 改了截图基线或共享模块（`shared`）；有验收标准"未验证"；改了源码却没改测试；代码里新增了 `@ts-ignore`、`eslint-disable`、`noqa` 这类关掉检查的注释，或者加了重试 | 你要看前后对比和标出来的部分 |
-| 3 | 改了设计约定、后端约定、接口契约或迁移；改了 `sensitive` 路径；移动端的原生改动；**改了检查本身**（见下） | 你确认之后才能合并 |
+| 3 | strict 改动：改了设计约定、后端约定、接口契约或迁移；改了 `sensitive` 路径或被识别为有风险的代码；移动端的原生改动；**改了检查本身**（见下） | 你确认之后才能合并 |
 | 未就绪 | 检查失败、评审未通过、有验收标准未满足或没被评审；运行或评审对应的不是当前磁盘上的内容 | 不合并 |
 
 证据包和 PR 描述里还有一节"合并风险"：能否撤回（有迁移是单向的，改了接口契约对已接入的调用方也是单向的）、
@@ -117,14 +152,16 @@ node <plugin>/scripts/flow-check.mjs acceptance docs/specs/x.md T2 --write # 生
 
 ## 评审
 
-`review-brief.mjs` 给每条 lane 的评审写同一份输入，交给一个新的子代理（能换模型就换），不带任何实现过程：
+standard 和 strict 改动才评审。`review-brief.mjs` 给每条 lane 的评审写同一份输入，交给一个新的子代理（能换模型就换），不带任何实现过程：
+
+- **要做哪些评审**：代码评审每次都做；有界面改动才看截图；改了契约要查兼容性；有风险时加安全检查。
 
 - **内容哈希**：要评的是哪一份内容，没在 git 里的新文件单独列出。
-- **深度**：quick（≤30 行、没碰共享模块）、standard、deep。契约、迁移、`sensitive` 路径、改了检查本身，
-  或者超过 400 行，都走 deep；deep 里每个 Blocker 都要先尝试推翻它，推不翻才写。
+- **深度**：quick（≤30 行、没碰共享模块）、standard、deep。strict 的改动或者超过 400 行，都走 deep；
+  deep 里每个 Blocker 都要先尝试推翻它，推不翻才写，评审文件要写 `Depth: deep`。
 - **清单项**：`docs/checklist.md` 里被这次 diff 触发的条目（每条写明触发条件、检查什么、来自哪次事故），评审逐条标"成立 / 不成立"。
 - **轮次**：从第 2 轮起，附上上一轮的发现，评审只看上次评审之后新增的 diff，旧发现逐条标"已修 / 仍未修 / 延后"，
-  不换个说法重复提。第 4 轮直接拒绝，交给你决定。
+  不换个说法重复提。最多两轮，第 3 轮直接拒绝，交给你决定。
 
 发现分为 Blocker、Should-fix、Note，以及 `Pre-existing`：这次改动没碰到的代码里的问题照样报告，但不挡合并，
 会单独列在证据包里。同一类问题要列出所有出现的地方，让作者一次修完。
@@ -148,9 +185,9 @@ lint 规则、类型或约束 > 由 diff 触发的清单项 > 写进约定文件
 
 ## 收尾检查和提交盖章
 
-**Stop 钩子**：这一轮改动了某条 lane 的文件（内容和这一轮开始时不同，由 UserPromptSubmit 钩子记录），而
-这条 lane 的 `run-verify` 没通过或对应的不是当前内容，独立评审缺失、未通过或对应的不是当前内容，验收标准或清单项
-没有全部标记，或者证据包不是当前内容的，第一次结束会被拦下。仍未通过就结束时，AI 必须写明"未验证"
+**Stop 钩子**：这一轮改动了某条 lane 的文件（内容和这一轮开始时不同，由 UserPromptSubmit 钩子记录）时，按级别检查：
+light 只要求这条 lane 的 `run-verify` 在当前内容上通过；standard 还要求独立评审针对当前内容且已通过、验收标准和清单项都已标记；
+strict 还要求评审是 deep。证据包由钩子自己生成，其他条件都满足时它会自动跑 `make-evidence`。不满足时第一次结束会被拦下。仍未通过就结束时，AI 必须写明"未验证"
 （钩子只拦一次，避免无限循环）。只聊天、没改内容的一轮不会被拦。
 
 `DX_WORKFLOW_GATE`：`enforce`（默认，拦截）、`observe`（只记录本来会拦什么，用来先看误报）、`off`（关闭）。
@@ -173,14 +210,9 @@ git log --format='%h %s%n  %(trailers:key=Verified,valueonly)' origin/main..
 CI 里目前不跑独立评审，分档会标明"checks only"。评审放进 CI 有两种做法（把 `.verify/review-*.md` 提交进 PR，
 或者在 CI 里跑 reviewer），还没定。
 
-## 安装
+## 可选的界面工具
 
-```bash
-/plugin marketplace add davidxiaodev/workflow
-/plugin install dx-workflow@dx-workflow
-```
-
-可选但推荐（插件会自动找到它们，见 `vendor.lock.json` 里锁定的版本）：
+插件会自动找到这些（见 `vendor.lock.json` 里锁定的版本）：
 
 ```bash
 /plugin marketplace add Leonxlnx/taste-skill
@@ -190,18 +222,6 @@ CI 里目前不跑独立评审，分档会标明"checks only"。评审放进 CI 
 ```
 
 baoyu-design 是可选的看图调色工具，只在项目仓库外用（它含有未授权的 Anthropic 材料）。
-
-## 在一个项目里开始
-
-- 前端：对 Claude 说"用 dx-workflow 的 frontend 技能给这个项目建立设计约定和检查"。
-- 后端：对 Claude 说"用 dx-workflow 的 backend 技能给这个项目建立后端约定和检查"。
-
-两者都会写约定文件、接好 `.verify/config.json`、加 lint 护栏、建一个空的 `docs/checklist.md`、和你一起填 `sensitive` 路径；
-没有可脚本化的用户路径时生成 `ctl` 控制命令；最后用 `run-verify.mjs --config working` 在未改动的代码上跑一遍全部检查
-（配置合进默认分支之后，就不再需要 `--config working`）。之后正常提需求即可：`flow` 技能会先给改动定大小，
-大的改动先和你一起写规格、拆任务，再一个任务一个 PR 地做。
-
-接着可以做的：装提交盖章钩子、接 CI 模板。
 
 ## 环境变量
 
@@ -216,13 +236,13 @@ baoyu-design 是可选的看图调色工具，只在项目仓库外用（它含�
 
 | 路径 | 作用 |
 | --- | --- |
-| `plugins/dx-workflow/skills/flow/` | 入口：给改动定大小，按步骤和关卡走完整个流程，按步骤分派给其他 skill 包 |
+| `plugins/dx-workflow/skills/workflow/` | 入口：`SKILL.md`（大小、风险级别、五个阶段、什么时候问人）、`large.md`（规格、架构、任务） |
 | `plugins/dx-workflow/skills/frontend/` | 前端：`SKILL.md`（入口）、`setup.md`、`build.md`、`verify.md`、`mobile.md`（React Native / Expo）、`design-review.md`（截图评审）、`code-review.md`（前端代码评审）、`templates/`（design.md、Web 截图测试、页面清单、`rn-look.json`、Maestro journey） |
 | `plugins/dx-workflow/skills/backend/` | 后端：`SKILL.md`（入口）、`setup.md`、`build.md`、`verify.md`、`code-review.md`（代码评审）、`templates/backend.md` |
 | `plugins/dx-workflow/shared/acceptance.md` | 怎么写验收标准、异常情况清单、评审怎么标记 |
 | `plugins/dx-workflow/shared/ctl.md` | 生成项目的控制命令（读写分开），以及 `verify-<app>` skill 和用户路径 |
-| `plugins/dx-workflow/shared/spec.md`、`tasks.md`、`debug.md` | 定义、拆任务、调试三步的做法和文件格式 |
-| `plugins/dx-workflow/shared/skill-packs.md` | 和 Matt Pocock、superpowers、agent-skills 一起用：谁做哪一步，冲突时以谁为准 |
+| `plugins/dx-workflow/shared/debug.md` | 检查连续失败时怎么找根因 |
+| `plugins/dx-workflow/shared/skill-packs.md` | 和 superpowers、Matt Pocock 的 skills 一起用：谁做哪一步，冲突时以谁为准 |
 | `plugins/dx-workflow/shared/ratchet.md` | 把犯过的错变成检查：分类、准入、单独提交、清理；清单格式 |
 | `plugins/dx-workflow/shared/verify.config.json` | `.verify/config.json` 模板（frontend 和 backend 两条 lane） |
 | `plugins/dx-workflow/shared/verify-ci.yml` | 项目用的 CI 模板 |
@@ -233,6 +253,8 @@ baoyu-design 是可选的看图调色工具，只在项目仓库外用（它含�
 | --- | --- |
 | `plugins/dx-workflow/hooks/hooks.json` | 注册 UserPromptSubmit 和 Stop 两个钩子 |
 | `plugins/dx-workflow/scripts/run-verify.mjs` | 按 lane 跑检查（含负向检查），记录退出码和内容哈希；`--config working`、`--keep-going`、`--restore` |
+| `plugins/dx-workflow/scripts/init.mjs` | 接入：找出已有的检查命令，生成最小的 `.verify/config.json` |
+| `plugins/dx-workflow/scripts/level.mjs`、`lib/level.mjs` | 这次改动的验证级别（light / standard / strict）和原因 |
 | `plugins/dx-workflow/scripts/flow-check.mjs` | 步骤之间的关卡：规格、任务、下一步可做的任务、生成任务的验收文件 |
 | `plugins/dx-workflow/scripts/lib/flow.mjs` | 解析规格和任务文件 |
 | `plugins/dx-workflow/scripts/review-brief.mjs` | 写评审 brief：内容哈希、深度、触发的清单项、轮次 |
@@ -264,7 +286,7 @@ npm test                                                                    # �
 node evals/run.mjs all --reviewer "claude -p --permission-mode acceptEdits" # 改 code-review.md、brief 或换模型之前先跑，和 evals/results/ 里上一次比
 ```
 
-发版：改 `plugins/dx-workflow/.claude-plugin/plugin.json` 的版本，合并后打同名 tag（如 `v0.6.0`），CI 模板按 tag 锁定插件版本。
+发版：改 `plugins/dx-workflow/.claude-plugin/plugin.json` 的版本，合并后打同名 tag（如 `v0.7.0`），CI 模板按 tag 锁定插件版本。
 
 升级第三方工具：一次只升一个，读它的改动，在两个项目上各跑一次 `run-verify.mjs`，结果没变差再改 `vendor.lock.json` 里的 commit。
 

@@ -1,52 +1,36 @@
-# Working with other skill packs
+# Working with superpowers and Matt Pocock's skills
 
-Matt Pocock's skills, superpowers and agent-skills each cover the whole path from idea to merge, and
-do several steps very well. Inside this plugin's flow they do the work of a step; this plugin keeps the
-files of record and the gates. Use a skill below only when it appears in your available skills
-(installed as a plugin they show as `mattpocock-skills:<name>`, `superpowers:<name>`,
-`agent-skills:<name>`); otherwise follow this plugin's own instructions for the step.
+dx-workflow orchestrates and verifies; it does not redo what these do well. When one is in your
+available skills, use it for the work inside a step. When it is not, follow this plugin's short
+fallback for that step.
 
-## Who does which step
-
-| Step | Use, if installed (first match) | This plugin's file of record and gate |
+| Step | Use | Fallback |
 | --- | --- | --- |
-| Define: interview, spec | `mattpocock-skills:grilling` · `grill-with-docs`; `agent-skills:interview-me` · `spec-driven-development`; `superpowers:brainstorming` | `docs/specs/<slug>.md`, `flow-check.mjs spec` (`shared/spec.md`) |
-| Domain language | `mattpocock-skills:domain-modeling` · `grill-with-docs` | `GLOSSARY.md` |
-| Tasks | `agent-skills:planning-and-task-breakdown`; `superpowers:writing-plans`; `mattpocock-skills:to-tickets` | `docs/specs/<slug>.tasks.md`, `flow-check.mjs tasks` (`shared/tasks.md`) |
-| Test first | `mattpocock-skills:tdd`; `superpowers:test-driven-development`; `agent-skills:test-driven-development` | the negative check in `run-verify.mjs` |
-| Parallel tasks | `superpowers:using-git-worktrees` · `dispatching-parallel-agents` | one task, one worktree, one `.verify/`, one pull request |
-| Debug | `mattpocock-skills:diagnosing-bugs`; `superpowers:systematic-debugging`; `agent-skills:debugging-and-error-recovery` | `.verify/debug.md` (`shared/debug.md`) |
-| Browser inspection | `agent-skills:browser-testing-with-devtools` (console errors, failed requests, performance) | findings go into the frontend review |
-| Architecture, cleanup | `mattpocock-skills:improve-codebase-architecture` · `codebase-design`; `agent-skills:code-simplification` | its own change; old patterns removed (`shared/ratchet.md`) |
-| Security, performance depth | `agent-skills:security-and-hardening` · `performance-optimization` | findings feed the review lenses and `docs/checklist.md` |
+| Understand a Large request | `superpowers:brainstorming`, `mattpocock-skills:grilling` (`grill-with-docs` also builds a glossary) | interview, one question at a time (`workflow/SKILL.md`) |
+| Architecture | `mattpocock-skills:codebase-design`, `improve-codebase-architecture` | the spec's Architecture section (`workflow/large.md`) |
+| Plan | `superpowers:writing-plans`, `mattpocock-skills:to-tickets` | the task list (`workflow/large.md`) |
+| Tests first | `superpowers:test-driven-development`, `mattpocock-skills:tdd` | the lane's `build.md` |
+| Parallel tasks | `superpowers:using-git-worktrees`, `dispatching-parallel-agents` | one task at a time |
+| Debug | `superpowers:systematic-debugging`, `mattpocock-skills:diagnosing-bugs` | `shared/debug.md` |
+| Code quality, cleanup | `mattpocock-skills:improve-codebase-architecture`, `code-review` (as an extra pass) | `shared/ratchet.md` |
 | Retro | `mattpocock-skills:retro` | `shared/ratchet.md` |
 
-## Where they disagree with this plugin, this plugin wins
+## Where they overlap with this plugin, this plugin decides
 
-- **Files of record.** Specs live in `docs/specs/<slug>.md` and tasks in `docs/specs/<slug>.tasks.md`,
-  in the formats `flow-check.mjs` reads. A pack that writes elsewhere (`docs/superpowers/specs/`,
-  `SPEC.md`, `tasks/todo.md`, `.scratch/`, issue tracker tickets) is a draft or a mirror: carry the
-  content over and link it under `Sources:`.
-- **Done.** A change is done when this plugin's Stop gate lets it end: `run-verify.mjs` passed on the
-  tree on disk, an independent review of that tree approved it from `review-brief.mjs`, and the evidence
-  pack has a merge tier. "Tests pass" (`superpowers:verification-before-completion`) or a pack's own
-  definition of done is part of that, not a replacement for it.
-- **Review.** The independent review comes from `review-brief.mjs`. A pack's reviewers
-  (`superpowers:requesting-code-review`, `agent-skills:code-review-and-quality`,
-  `mattpocock-skills:code-review`, the task reviewer in `superpowers:subagent-driven-development`) may
-  run as extra passes while building; their verdicts do not replace it and are not "Verdict: approved".
-- **Merge.** The merge tier decides who must look. Do not merge locally or open a ready pull request
-  before the evidence pack exists (`superpowers:finishing-a-development-branch` options "merge locally"
-  and "push and create a PR" wait for it). A pack's `/ship` checklist adds to the tier; it cannot lower it.
-- **Commits.** Plans that commit after each step are fine on the task's branch; the commit stamp
-  (`stamp.mjs`) records whether each was verified.
-- **Session start.** Meta-skills that route every message (`superpowers:using-superpowers`,
-  `agent-skills:using-agent-skills`) may stay on; when one routes work in a project with
-  `.verify/config.json`, start from this plugin's `flow` skill.
-- **Never weaken a check** to satisfy a pack's step: a skipped test, a loosened threshold or an
-  edited `.verify/config.json` is a guarded change whatever skill asked for it.
+- **Done** is the Stop gate letting the turn end: the checks passed on the tree on disk and, for
+  standard and strict changes, the independent review from `review-brief.mjs` approved it. "Tests
+  pass" (`superpowers:verification-before-completion`) is part of that.
+- **The independent review** is the one `review-brief.mjs` writes. Reviews inside other skills
+  (`superpowers:requesting-code-review`, the reviewer in `superpowers:subagent-driven-development`,
+  `mattpocock-skills:code-review`) are extra passes while building, not the approval.
+- **Merging** follows the merge tier. Do not merge locally or mark a pull request ready before the
+  Stop gate passes (`superpowers:finishing-a-development-branch` waits for it).
+- **Files of record** for Large changes are `docs/specs/<slug>.md` and `.tasks.md`. Drafts other
+  skills write elsewhere (`docs/superpowers/`, `.scratch/`, an issue) are linked under `Sources:`.
+- **Session routing** (`superpowers:using-superpowers`) can stay on; in a project with
+  `.verify/config.json`, coding requests start from this plugin's `workflow` skill.
+- **No check is weakened** for another skill's step: skipping a test or editing `.verify/config.json`
+  is a guarded change whichever skill asked for it.
 
-## Versions
-
-The table was written against the commits in `vendor.lock.json` ("routed"). When a pack renames or
-removes a skill, the step falls back to this plugin's own instructions; update the table in its own change.
+Versions these names were checked against: `vendor.lock.json`, "routed". If a skill is renamed,
+use the fallback and update this table in its own change.

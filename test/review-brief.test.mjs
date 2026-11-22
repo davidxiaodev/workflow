@@ -74,15 +74,32 @@ describe("review-brief", () => {
     assert.ok(existsSync(join(root, ".verify/brief-backend.md")));
   });
 
-  it("gives a frontend lane both the design review and the frontend code review", () => {
-    const root = project({ config: { lanes: { web: { kind: "frontend", files: ["src/**", "test/**"], checks: [{ name: "unit", run: "node test/run.mjs" }] } } } });
+  it("gives a frontend lane the screenshot review only when something visual changed", () => {
+    const root = project({ config: { risk: { lightMaxLines: 0 }, lanes: { web: { kind: "frontend", files: ["src/**", "test/**"], checks: [{ name: "unit", run: "node test/run.mjs" }] } } } });
     addFeature(root);
     node("run-verify.mjs", [], { cwd: root });
-    const r = node("review-brief.mjs", ["--lane", "web", "--request", "add sub", "--scope", "home at 390"], { cwd: root });
+    let r = node("review-brief.mjs", ["--lane", "web", "--request", "add sub"], { cwd: root });
     assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /## Reviews: code\n/);
+    assert.match(r.stdout, /frontend\/code-review\.md \(nothing visual changed: no screenshot review\)/);
+
+    write(root, { "src/Total.tsx": 'export const Total = ({ n }) => <span className="total">{n}</span>;\n' });
+    node("run-verify.mjs", [], { cwd: root });
+    r = node("review-brief.mjs", ["--lane", "web", "--request", "add sub", "--scope", "home at 390"], { cwd: root });
+    assert.match(r.stdout, /## Reviews: code, UI \(screenshots\)/);
     assert.match(r.stdout, /skills\/frontend\/design-review\.md for the screenshots, then .*skills\/frontend\/code-review\.md for the code/);
     assert.match(r.stdout, /docs\/design\.md/);
     assert.match(r.stdout, /Scope: home at 390/);
+  });
+
+  it("adds a security review for a risky change, found without any config", () => {
+    const root = project();
+    write(root, { "src/session.mjs": "import jwt from 'jsonwebtoken';\nexport const verify = (t) => jwt.verify(t, process.env.KEY);\n" });
+    node("run-verify.mjs", [], { cwd: root });
+    const r = brief(root);
+    assert.match(r.stdout, /## Reviews: code, security/);
+    assert.match(r.stdout, /## Depth: deep \(.*risky path: src\/session\.mjs/);
+    assert.match(r.stdout, /Write "Depth: deep" under the title/);
   });
 
   it("goes deep on sensitive paths and asks to disprove Blockers", () => {
@@ -102,15 +119,15 @@ describe("review-brief", () => {
     assert.match(brief(root).stdout, /new files not yet in git.*src\/extra\.mjs/);
   });
 
-  it("gives round 2 the previous findings and only the new diff, and stops after three rounds", () => {
+  it("gives round 2 the previous findings and only the new diff, and stops after two rounds", () => {
     const root = project();
     addFeature(root);
-    for (let round = 1; round <= 3; round++) {
+    for (let round = 1; round <= 2; round++) {
       write(root, { "src/math.mjs": read(root, "src/math.mjs") + `// round ${round}\n` });
       node("run-verify.mjs", [], { cwd: root });
       const r = brief(root);
       assert.equal(r.code, 0, `round ${round}: ${r.stderr}`);
-      assert.match(r.stdout, new RegExp(`round ${round} of at most 3`));
+      assert.match(r.stdout, new RegExp(`round ${round} of at most 2`));
       if (round === 2) {
         assert.match(r.stdout, /## Round 2: what changed since round 1/);
         assert.match(r.stdout, /git diff [0-9a-f]{40} [0-9a-f]{40}/);
@@ -119,11 +136,11 @@ describe("review-brief", () => {
       const last = JSON.parse(read(root, ".verify/last-run.json"));
       write(root, { ".verify/review-backend.md": `# Review\nTree: ${last.lanes.backend.tree}\n\n## Findings\n- [ ] Blocker · src/math.mjs:1 · wrong\n\nVerdict: changes required\n` });
     }
-    write(root, { "src/math.mjs": read(root, "src/math.mjs") + "// round 4\n" });
+    write(root, { "src/math.mjs": read(root, "src/math.mjs") + "// round 3\n" });
     node("run-verify.mjs", [], { cwd: root });
     const r4 = brief(root);
     assert.equal(r4.code, 3);
-    assert.match(r4.stderr, /3 review rounds of lane backend ended without approval/);
+    assert.match(r4.stderr, /2 review rounds of lane backend ended without approval/);
   });
 
   it("restarts the round count for a new change (new acceptance)", () => {

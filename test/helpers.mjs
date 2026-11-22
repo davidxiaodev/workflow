@@ -18,6 +18,8 @@ const GIT_ENV = {
 };
 
 export const CONFIG = {
+  // Most tests exercise reviews and evidence, so changes count as standard; light changes have their own tests.
+  risk: { lightMaxLines: 0 },
   lanes: {
     backend: {
       files: ["src/**", "test/**"],

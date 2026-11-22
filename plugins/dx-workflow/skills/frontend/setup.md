@@ -1,5 +1,9 @@
 # Setup: a design contract for this project
 
+This is the full setup, not the first step. A project starts with `node <plugin>/scripts/init.mjs`
+(the existing test, lint and type commands as lanes) and works from there; come here when a change
+needs more: the first time a screen needs design rules or screenshots, or when the developer asks. Do the parts that change needs.
+
 For a React Native or Expo app, follow `mobile.md` "Setup" for the lane, raw styles, screenshots and
 journeys; the design contract steps below apply as they are.
 

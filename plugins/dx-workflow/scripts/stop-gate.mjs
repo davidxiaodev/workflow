@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Claude Code Stop hook. In a project with .verify/config.json it blocks the end of a turn that
-// changed files of a lane (frontend, backend, …) when that lane is not verified for exactly the content on
-// disk now:
-//   - its last run-verify did not pass, or ran on a different tree (content hash, not file times);
-//   - its independent review is missing, open, not approved, or names a different tree;
-//   - the acceptance criteria are missing or not all accounted for in a review;
-//   - the evidence pack is missing, names a different tree, or is older than a review.
+// changed files of a lane (frontend, backend, …) when the change is not verified for exactly the
+// content on disk now. What "verified" means depends on the change's level (lib/level.mjs):
+//   light     every touched lane's last run-verify passed on this tree. Nothing else.
+//   standard  also: an independent review of this tree, approved with no open line; the acceptance
+//             criteria all accounted for in a review; the evidence pack (the gate makes it itself
+//             when that is all that is missing).
+//   strict    also: the review was deep ("Depth: deep", which review-brief.mjs asks for).
+// A run or review counts only for the tree it names (content hash, not file times).
 // "Changed" means: the files differ from the base commit (committed on this branch or not, deletions
 // included), and the tree differs from the one recorded when the turn started (turn-start.mjs), so a
 // turn that only talked is not stopped.
@@ -13,8 +15,11 @@
 // It blocks once per stop (stop_hook_active lets the second attempt through, so a turn cannot loop
 // forever). DX_WORKFLOW_GATE: "enforce" (default) blocks; "observe" only logs what it would have
 // blocked; "off" does nothing. Every decision is appended to .verify/gate.log.
+import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { changeLevel } from "./lib/level.mjs";
 import {
   acceptanceIds,
   acceptanceLines,
@@ -47,6 +52,7 @@ const current = treeHash(root);
 const turn = readJson(join(cfg.dir, "turn.json"));
 if (current && turn?.tree === current) process.exit(0); // this turn changed nothing
 
+const lvl = changeLevel(cfg, changes);
 const last = readJson(join(cfg.dir, "last-run.json"));
 const problems = [];
 const reviewTimes = [];
@@ -65,6 +71,7 @@ for (const { lane, files } of required) {
   }
   if (run.result !== "pass") problems.push(`${label}: the last run-verify result is "${run.result}", not "pass".`);
   if (run.tree !== current) problems.push(`${label}: files changed since the last run-verify (it checked tree ${short(run.tree)}, the tree is now ${short(current)}).`);
+  if (lvl.level === "light") continue;
   if (!existsSync(reviewPath)) {
     problems.push(`${label}: .verify/review-${lane.name}.md is missing (independent review).`);
     continue;
@@ -77,11 +84,14 @@ for (const { lane, files } of required) {
   const open = review.split("\n").filter(OPEN_LINE);
   if (open.length) problems.push(`${label}: its review still has ${open.length} open or failing line(s).`);
   if (!/^Verdict:\s*approved\b/im.test(review)) problems.push(`${label}: its review does not say "Verdict: approved".`);
+  if (lvl.level === "strict" && !/^Depth:\s*deep\b/im.test(review)) problems.push(`${label}: the change is strict (${lvl.reasons[0]}), so its review must be deep: write a new brief with review-brief.mjs and dispatch a fresh reviewer.`);
   for (const l of acceptanceLines(review)) for (const m of l.matchAll(/\bA\d+\b/gi)) coveredIds.add(m[0].toUpperCase());
 }
 
 const acceptancePath = join(cfg.dir, "acceptance.md");
-if (!existsSync(acceptancePath)) problems.push(".verify/acceptance.md is missing: write the observable criteria for this change (shared/acceptance.md).");
+if (lvl.level === "light") {
+  // nothing beyond passing checks
+} else if (!existsSync(acceptancePath)) problems.push(".verify/acceptance.md is missing: write the observable criteria for this change (shared/acceptance.md).");
 else {
   const ids = acceptanceIds(readFileSync(acceptancePath, "utf8"));
   if (ids.length === 0) problems.push(".verify/acceptance.md has no criteria (lines starting with `- A1`).");
@@ -89,16 +99,28 @@ else {
   if (missing.length && reviewTimes.length) problems.push(`acceptance criteria ${missing.join(", ")} appear in no review's "## Acceptance" section.`);
 }
 
-const evidencePath = last?.runDir ? join(last.runDir, "evidence.md") : "";
-if (!evidencePath || !existsSync(evidencePath)) problems.push("the evidence pack is missing: run make-evidence.mjs after the reviews.");
-else {
+// The evidence pack is bookkeeping, not a step: when everything else holds, make it here.
+if (lvl.level !== "light") {
+  let evidence = evidenceProblems();
+  if (evidence.length && problems.length === 0) {
+    spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "make-evidence.mjs"), "--root", root], { cwd: root, stdio: "ignore", timeout: 20_000 });
+    evidence = evidenceProblems();
+  }
+  problems.push(...evidence);
+}
+
+function evidenceProblems() {
+  const evidencePath = last?.runDir ? join(last.runDir, "evidence.md") : "";
+  if (!evidencePath || !existsSync(evidencePath)) return ["the evidence pack is missing: run make-evidence.mjs after the reviews."];
+  const out = [];
   const evidenceTree = /^Tree:\s*([0-9a-f]+)/im.exec(readFileSync(evidencePath, "utf8"))?.[1];
-  if (evidenceTree !== current) problems.push("the evidence pack is of another tree: run make-evidence.mjs again.");
-  if (reviewTimes.some((t) => statSync(evidencePath).mtimeMs < t)) problems.push("the evidence pack is older than a review: run make-evidence.mjs again.");
+  if (evidenceTree !== current) out.push("the evidence pack is of another tree: run make-evidence.mjs again.");
+  if (reviewTimes.some((t) => statSync(evidencePath).mtimeMs < t)) out.push("the evidence pack is older than a review: run make-evidence.mjs again.");
+  return out;
 }
 
 if (problems.length === 0) {
-  log("pass", []);
+  log(`pass (${lvl.level})`, []);
   process.exit(0);
 }
 if (input.stop_hook_active) {
@@ -111,9 +133,11 @@ if (mode === "observe") {
 }
 log("block", problems);
 block([
-  "Changes are not verified:",
+  `Changes are not verified (level ${lvl.level}${lvl.reasons.length ? `: ${lvl.reasons.slice(0, 3).join("; ")}` : ""}):`,
   ...problems.map((p) => `- ${p}`),
-  "Follow the lane's skill (ui: frontend verify.md; api: backend verify.md): run run-verify.mjs, get an independent review written to .verify/review-<lane>.md that names the run's tree and accounts for every acceptance criterion, then run make-evidence.mjs.",
+  lvl.level === "light"
+    ? "A light change needs only its checks: run run-verify.mjs and fix what fails."
+    : "Run run-verify.mjs, then an independent review: review-brief.mjs writes the brief for a fresh subagent, which writes .verify/review-<lane>.md. The gate makes the evidence pack itself.",
   "If you cannot verify (no browser, no database, server will not start), say so plainly to the user instead of claiming the work is done.",
 ]);
 

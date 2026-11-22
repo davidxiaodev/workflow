@@ -7,7 +7,7 @@
 //   node review-brief.mjs --lane frontend --request "…" --scope "<pages and widths>" --baselines "<page-width: why, or none>"
 //
 // Prints the brief (pass it verbatim to a fresh subagent) and saves it to .verify/brief-<lane>.md.
-// Exit 0 with a brief; 3 when three rounds ran without approval (stop and hand the findings to the
+// Exit 0 with a brief; 3 when two rounds ran without approval (stop and hand the findings to the
 // user); 2 when inputs are missing (no run of this lane on the current tree).
 //
 // Rounds: a review of an older tree is archived to .verify/rounds/<lane>-<n>.md when the next brief is
@@ -17,9 +17,10 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CHECKLIST_PATH, matchChecklist, parseChecklist } from "./lib/checklist.mjs";
+import { changeLevel } from "./lib/level.mjs";
 import { changedSince, contractPaths, gitLines, gitShow, guardChanges, inLane, loadConfig, matchAny, OPEN_LINE, readJson, treeHash } from "./lib/verify-config.mjs";
 
-const MAX_ROUNDS = 3;
+const MAX_ROUNDS = 2;
 const PLUGIN = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const opt = (name) => {
@@ -70,8 +71,23 @@ const reasons3 = [
   native.length && `native (needs a store build): ${native.join(", ")}`,
   guarded.some((g) => g.tier === 3) && `checks changed: ${guarded.filter((g) => g.tier === 3).map((g) => g.path).join(", ")}`,
 ].filter(Boolean);
+const lvl = changeLevel(cfg);
+// The level adds what the lane config does not name: risky paths and lines found by the heuristics, migrations.
+if (lvl.level === "strict") reasons3.push(...lvl.reasons.filter((r) => !/^(contract|sensitive|native|the checks changed):/.test(r)));
 const depth = reasons3.length || size > 400 ? "deep" : size <= 30 && !shared.length ? "quick" : "standard";
 const depthWhy = reasons3.length ? reasons3.join("; ") : size > 400 ? `${size} changed lines` : depth === "quick" ? `${size} changed lines, nothing shared` : `${size} changed lines${shared.length ? `, shared: ${shared.join(", ")}` : ""}`;
+
+// Which reviews this change needs: only what the diff touched.
+const VISUAL_FILE = /\.(css|scss|sass|less)$|(^|\/)(tailwind\.config|theme|tokens?)\.|-snapshots\/|(^|\/)docs\/design\.md$/;
+const VISUAL_LINE = /className=|class=|style=|StyleSheet|styled\.|<[A-Z][A-Za-z]*[\s/>]|<(div|span|button|input|section|header|footer|nav|ul|li|img|View|Text|Pressable)\b/;
+const visual = lane.kind === "frontend" && (lanePaths.some((p) => VISUAL_FILE.test(p)) || diffLines.some((l) => VISUAL_LINE.test(l)));
+const securityWhy = lvl.level === "strict" ? lvl.reasons.filter((r) => !/^(native|the checks changed|migration):/.test(r)) : [];
+const reviews = [
+  "code",
+  ...(visual ? ["UI (screenshots)"] : []),
+  ...(contract.length ? ["contract compatibility"] : []),
+  ...(securityWhy.length ? ["security"] : []),
+];
 
 // Checklist items this diff triggers, from the base commit's checklist.
 const checklistText = gitShow(root, cfg.base ?? "HEAD", CHECKLIST_PATH) ?? (existsSync(join(root, CHECKLIST_PATH)) ? readFileSync(join(root, CHECKLIST_PATH), "utf8") : "");
@@ -116,7 +132,9 @@ const deferredPath = join(cfg.dir, `deferred-${lane.name}.md`);
 const deferred = existsSync(deferredPath) ? readFileSync(deferredPath, "utf8").trim() : "";
 const guides =
   lane.kind === "frontend"
-    ? `${join(PLUGIN, "skills/frontend/design-review.md")} for the screenshots, then ${join(PLUGIN, "skills/frontend/code-review.md")} for the code (one review file, one Findings list)`
+    ? visual
+      ? `${join(PLUGIN, "skills/frontend/design-review.md")} for the screenshots, then ${join(PLUGIN, "skills/frontend/code-review.md")} for the code (one review file, one Findings list)`
+      : `${join(PLUGIN, "skills/frontend/code-review.md")} (nothing visual changed: no screenshot review)`
     : join(PLUGIN, "skills/backend/code-review.md");
 const contractDoc = lane.kind === "frontend" ? "docs/design.md" : "docs/backend.md";
 
@@ -132,7 +150,14 @@ out.push(`- the change: \`git diff ${short(cfg.base)}\` (${lanePaths.length} fil
 const newFiles = lanePaths.filter((p) => untracked.has(p));
 if (newFiles.length) out.push(`- new files not yet in git, so not in that diff (read them whole): ${newFiles.join(", ")}`);
 out.push(`- Tree under review: ${current}. Write "Tree: ${current}" under the title.`, "");
-out.push(`## Depth: ${depth} (${depthWhy})`);
+out.push(`## Reviews: ${reviews.join(", ")}`);
+if (contract.length) out.push(`- Contract compatibility: ${contract.join(", ")} changed. Check that every existing caller (other services, the web app, app builds already installed) still works, or that the break is in the acceptance and agreed.`);
+if (securityWhy.length)
+  out.push(
+    `- Security (${securityWhy.slice(0, 3).join("; ")}): who may call it and on whose data (authorisation on every object read or written), input validation and injection, secrets and tokens (never logged, never in the client), session and cookie flags, what an attacker sees in errors. Each finding needs the request or input that shows it.`,
+  );
+out.push("");
+out.push(`## Depth: ${depth} (${depthWhy})`, `Write "Depth: ${depth}" under the title.`);
 if (depth === "quick") out.push("Mark every acceptance criterion; run only the lenses whose subject is in the diff; skip the safety fact unless a finding needs one.");
 if (depth === "standard") out.push("Mark every acceptance criterion; run each lens whose subject is in the diff; name and prove the safety fact for the riskiest part.");
 if (depth === "deep")

@@ -1,7 +1,9 @@
 # Acceptance: decide what "done" looks like before building
 
-Every change gets `.verify/acceptance.md` before any product code is written. It lists what a user
-or a caller can observe when the change works, each item with the proof that will show it. The
+Every Medium or Large change gets `.verify/acceptance.md` before any product code is written (a
+Small change states its one to three criteria in a sentence to the developer and writes no file;
+a light change needs none). It lists what a user or a caller can observe when the change works,
+each item with the proof that will show it. The
 builder writes it; an independent reviewer later marks each item met, not met or not checked; the
 evidence pack shows those marks apart from the machine checks, because tests passing is not the same
 as the requirement being met.
@@ -10,9 +12,9 @@ as the requirement being met.
 
 | Change | Acceptance |
 | --- | --- |
-| Copy, a colour, a one-line fix | 1 to 3 criteria, no interview |
-| A feature inside one lane, no contract change | the criteria plus the adverse cases below that apply |
-| A new flow, an API or data contract change, a migration, auth | a spec first (`shared/spec.md`, size L in the `flow` skill): the criteria live in the spec and each task's file is generated from it |
+| Small: copy, a colour, a one-line fix | 1 to 3 criteria said to the developer, no file, no interview |
+| Medium: one feature or fix, one pull request | the file: criteria plus the adverse cases below that apply; a `## Plan` of a few bullets only when the change has several parts |
+| Large: a new flow, more than one pull request | a spec first (`skills/workflow/large.md`): the criteria live in the spec and each task's file is generated from it |
 
 ## Interview first when the change is big
 

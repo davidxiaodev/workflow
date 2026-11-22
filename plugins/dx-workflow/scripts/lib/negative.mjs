@@ -63,7 +63,7 @@ export function runNegative({ root, dir, lane, tests, spec, timeoutMs, env }) {
   }
 
   const run = (label) => {
-    const r = spawnSync(test, { cwd: root, shell: true, encoding: "utf8", timeout: timeoutMs, maxBuffer: 64 << 20, env });
+    const r = spawnSync(test, { cwd: spec.cwd ? join(root, spec.cwd) : root, shell: true, encoding: "utf8", timeout: timeoutMs, maxBuffer: 64 << 20, env });
     const code = r.status ?? (r.signal ? 124 : 1);
     log.push(`== ${label}: $ ${test} → exit ${code}`, r.stdout ?? "", r.stderr ?? "", "");
     return code;

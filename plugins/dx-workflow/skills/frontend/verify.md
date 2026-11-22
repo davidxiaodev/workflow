@@ -1,5 +1,10 @@
 # Verify: prove the screen is right
 
+What a change needs depends on its level (`node <plugin>/scripts/level.mjs`): a **light** change is
+done when the lane's checks pass, with no acceptance file, review or evidence pack. **Standard** and
+**strict** changes go on to the independent review (with a screenshot review only when something
+visual changed); the Stop gate makes the evidence pack.
+
 In a React Native / Expo lane the look check is `rn-look.mjs` (simulators, default, dark and
 large-text variants) and the journeys are Maestro flows; read `mobile.md` "Verify" for what a phone
 adds. Use `--lane <name>` with the lane's name (`app`, `web`, …).
@@ -51,7 +56,7 @@ Then:
    dispatch a new fresh reviewer. Never resume the previous reviewer; it would grade its own advice.
 3. Defer a Should-fix only with a reason the user would accept; every deferral appears in your final
    message. Blockers are never deferred.
-4. After three review rounds without `approved`, `review-brief.mjs` refuses a fourth (exit 3): stop
+4. After two review rounds without `approved`, `review-brief.mjs` refuses a third (exit 3): stop
    and give the user the open findings and the screenshots.
 5. After an approved review, go through `<plugin>/shared/ratchet.md` for every Blocker: a visual
    mistake that a script could catch (a raw colour, a missing state page, a clipped label) becomes a
@@ -67,7 +72,7 @@ cannot loop forever; ending that way means your final message must say the UI is
 ## Evidence pack and merge tier
 
 People read evidence instead of code. After the review, run
-`node <plugin>/scripts/make-evidence.mjs` (add `--pr` when you will open a pull request). It writes `<runDir>/evidence.md`: the merge tier,
+The Stop gate runs `node <plugin>/scripts/make-evidence.mjs` itself after the review (run it with `--pr` when you will open a pull request). It writes `<runDir>/evidence.md`: the merge tier,
 the checks, before/after screenshots per page and width, recordings, the verdict, open and deferred
 findings, what was not checked, and the merge danger (door, blast radius, how to revert). The Stop
 gate requires it for the tree on disk, written after the review.

@@ -253,6 +253,6 @@ describe("react-native lanes", () => {
     const r = node("review-brief.mjs", ["--lane", "app", "--request", "rename"], { cwd: root });
     assert.equal(r.code, 0, r.stderr);
     assert.match(r.stdout, /## Depth: deep \(native \(needs a store build\): app\.json\)/);
-    assert.match(r.stdout, /frontend\/design-review\.md for the screenshots/);
+    assert.match(r.stdout, /## Reviews: code\n/, "app.json is not visual: no screenshot review");
   });
 });

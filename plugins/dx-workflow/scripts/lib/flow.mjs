@@ -25,6 +25,7 @@ const field = (text, name) => new RegExp(`^${name}:\\s*(.+)$`, "im").exec(text)?
 export function parseSpec(text) {
   const goals = items(section(text, "Goals"), "S");
   const nonGoals = (section(text, "Non-goals") ?? []).filter((l) => /^\s*-\s*\S/.test(l) && !/^\s*-\s*</.test(l));
+  const architecture = (section(text, "Architecture") ?? []).filter((l) => l.trim() && !/^\s*</.test(l));
   const decisions = items(section(text, "Decisions"), "D");
   const questions = items(section(text, "Open questions"), "Q").map((q) => ({
     ...q,
@@ -35,7 +36,7 @@ export function parseSpec(text) {
     refs: [...new Set([...c.text.matchAll(/\bS\d+\b/g)].map((m) => m[0]))],
     proof: /·\s*proof:\s*\S/i.test(c.text),
   }));
-  return { title: /^#\s*Spec:\s*(.+)$/m.exec(text)?.[1].trim() ?? null, status: field(text, "Status"), goals, nonGoals, decisions, questions, criteria };
+  return { title: /^#\s*Spec:\s*(.+)$/m.exec(text)?.[1].trim() ?? null, status: field(text, "Status"), goals, nonGoals, architecture, decisions, questions, criteria };
 }
 
 /** Problems that keep a spec from gating into acceptance and tasks. */
@@ -44,6 +45,7 @@ export function checkSpec(spec) {
   if (!/^agreed$/i.test(spec.status ?? "")) p.push(`Status is "${spec.status ?? "missing"}": the user agrees the spec before building ("Status: agreed").`);
   if (!spec.goals.length) p.push("no goals (## Goals with - S1 …): what outcome makes this worth doing?");
   if (!spec.nonGoals.length) p.push("no non-goals (## Non-goals): say what this does not do, so nobody builds it.");
+  if (!spec.architecture.length) p.push("no architecture (## Architecture): the modules or screens involved, their interfaces, the data and who owns it; a few lines.");
   for (const q of spec.questions.filter((q) => !q.resolved)) p.push(`${q.id} is open: answer it (→ D<n>), or write "· deferred: <why it is safe to build without it>".`);
   if (!spec.criteria.length) p.push("no acceptance criteria (## Acceptance with - A1 … (S1) · proof: …).");
   const goalIds = new Set(spec.goals.map((g) => g.id));

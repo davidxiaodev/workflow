@@ -1,5 +1,9 @@
 # Setup: a backend contract and checks for this project
 
+This is the full setup, not the first step. A project starts with `node <plugin>/scripts/init.mjs`
+(the existing test, lint and type commands as lanes) and works from there; come here when a change
+needs more: the first time a change touches a contract, a migration or an endpoint the checks do not cover, or when the developer asks. Do the parts that change needs.
+
 Do this once per project, or once per service when a repo has several (each gets its own lane,
 `backend-<service>`, with `"kind": "backend"`). The output is `docs/backend.md`, a contract file, the `backend`
 lane in `.verify/config.json`, and `ctl`. The user decides policy; you find what exists and write it down.
