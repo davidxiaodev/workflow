@@ -27,7 +27,7 @@ const specPathFor = (tasksFile) => tasksFile.replace(/\.tasks\.md$/, ".md");
 const read = (p) => readFileSync(p, "utf8");
 
 if (cmd === "spec") {
-  report("spec", checkSpec(parseSpec(read(path))), `the spec is agreed and complete: write the task list (shared/tasks.md) or, for one pull request, the acceptance: flow-check.mjs acceptance ${rel(path)} --write`);
+  report("spec", checkSpec(parseSpec(read(path))), `the spec is agreed and complete: write the task list (skills/workflow/large.md) or, for one pull request, the acceptance: flow-check.mjs acceptance ${rel(path)} --write`);
 } else if (cmd === "tasks") {
   const specFile = specPathFor(path);
   if (specFile === path || !existsSync(specFile)) fail(`flow-check: a task list is <spec>.tasks.md next to its spec; no ${rel(specFile)}.`);

@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 60
     env:
       # Pin the plugin to a release tag or commit; upgrade it in its own pull request.
-      DX_WORKFLOW_REF: v0.5.0
+      DX_WORKFLOW_REF: v0.7.0
       VERIFY_BASE: origin/${{ github.base_ref }}
     steps:
       - uses: actions/checkout@v4

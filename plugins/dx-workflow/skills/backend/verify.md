@@ -1,5 +1,9 @@
 # Verify: prove the backend change works
 
+What a change needs depends on its level (`node <plugin>/scripts/level.mjs`): a **light** change is
+done when the checks below pass, with no acceptance file, review or evidence pack. **Standard** and
+**strict** changes go on to the independent review; the Stop gate makes the evidence pack.
+
 ## Run the checks
 
 `node <plugin>/scripts/run-verify.mjs --lane backend` (or without `--lane` to run every lane) runs the
@@ -63,7 +67,7 @@ Then:
    resume the previous reviewer.
 3. Defer a Should-fix only with a reason the user would accept; every deferral is in your final message.
    Blockers, unmet criteria and broken checklist items are never deferred.
-4. After three rounds without `approved`, `review-brief.mjs` refuses a fourth (exit 3): stop,
+4. After two rounds without `approved`, `review-brief.mjs` refuses a third (exit 3): stop,
    reconsider the approach, and give the user the open findings.
 5. After an approved review, go through `<plugin>/shared/ratchet.md` for every Blocker and every
    finding the reviewer called a class: it turns them into checks so the next change cannot repeat them.
@@ -72,7 +76,7 @@ Then:
 
 ## Evidence pack and merge tier
 
-After the review, `node <plugin>/scripts/make-evidence.mjs` (add `--pr` for a pull request body).
+After the review the Stop gate writes the evidence pack itself; run `node <plugin>/scripts/make-evidence.mjs --pr` when you need the pull request body.
 
 | Tier | When | Who must look |
 | --- | --- | --- |

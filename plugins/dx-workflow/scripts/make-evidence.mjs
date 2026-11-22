@@ -34,6 +34,7 @@ import {
   readJson,
   treeHash,
 } from "./lib/verify-config.mjs";
+import { changeLevel } from "./lib/level.mjs";
 
 const args = process.argv.slice(2);
 const rootArg = args.indexOf("--root");
@@ -54,6 +55,9 @@ const allChanges = changedSince(root, cfg.base);
 const changes = allChanges.filter((c) => !c.path.startsWith(".verify/"));
 const touched = changes.map((c) => c.path);
 const guarded = guardChanges(cfg, allChanges); // .verify/config.json is a guard file
+const lvl = changeLevel(cfg, allChanges);
+// A light change (small, nothing risky) needs no review or acceptance file: its checks are the evidence.
+const reviewsOptional = checksOnly || lvl.level === "light";
 
 const current = treeHash(root);
 const short = (h) => (h ? h.slice(0, 12) : "none");
@@ -62,7 +66,7 @@ let lanes = cfg.lanes.filter((l) => touched.some((f) => inLane(l, f)));
 if (lanes.length === 0) lanes = cfg.lanes.filter((l) => last.lanes[l.name]);
 
 // Reviews, one per lane.
-const reviews = (checksOnly ? [] : lanes).map((lane) => {
+const reviews = (reviewsOptional ? [] : lanes).map((lane) => {
   const path = join(cfg.dir, `review-${lane.name}.md`);
   const text = existsSync(path) ? readFileSync(path, "utf8") : "";
   const lines = text.split("\n");
@@ -118,7 +122,7 @@ const reviewsReady = reviews.every((r) => /^approved\b/i.test(r.verdict) && r.op
 const sameTree = staleRuns.length === 0 && staleReviews.length === 0;
 const guard3 = guarded.filter((g) => g.tier === 3);
 const guard2 = guarded.filter((g) => g.tier === 2);
-const acceptanceReady = checksOnly || (criteria.length > 0 && criteria.every((c) => c.status === "met" || c.status === "not checked"));
+const acceptanceReady = reviewsOptional || (criteria.length > 0 && criteria.every((c) => c.status === "met" || c.status === "not checked"));
 const why2 = [
   baselineChanges.length && "screenshot baselines changed",
   sharedChanges.length && "shared parts changed",
@@ -131,6 +135,10 @@ const why3 = [
   sensitiveChanges.length && `a sensitive path changed (${sensitiveChanges.join(", ")})`,
   nativeChanges.length && `a native change needs a new store build (${nativeChanges.join(", ")})`,
   guard3.length && `the checks themselves changed (${[...new Set(guard3.map((g) => `${g.path}: ${g.why}`))].join("; ")})`,
+  ...(() => {
+    const more = lvl.reasons.filter((r) => lvl.level === "strict" && !/^(contract|sensitive|native|the checks changed):/.test(r));
+    return more.length ? [`a risky change (${more.join("; ")})`] : [];
+  })(),
 ].filter(Boolean);
 const notReady = [
   !lanesReady && "a lane's checks did not pass",
@@ -144,7 +152,9 @@ const tier = notReady.length
     ? { id: "3", rule: `${why3.join("; ")}. The owner must confirm before merge.` }
     : why2.length
       ? { id: "2", rule: `Look before merge: ${why2.join("; ")}.` }
-      : { id: "1", rule: "Verified and contained. A glance at this page is enough to merge." };
+      : lvl.level === "light"
+        ? { id: "1", rule: `Light change (${lvl.lines} line(s), nothing risky): the checks passed, no review was needed. Merge.` }
+        : { id: "1", rule: "Verified and contained. A glance at this page is enough to merge." };
 
 if (checksOnly) tier.rule = `${tier.rule} (Checks only: no independent review ran here.)`;
 
@@ -198,7 +208,7 @@ for (const f of [acceptancePath, ...reviews.map((r) => r.path)]) if (existsSync(
 const md = [];
 md.push(`# Evidence: ${basename(runDir)}`, "");
 md.push(`**Merge tier: ${tier.id}.** ${tier.rule}`, "");
-md.push(`Tree: ${current ?? "unknown"}`, `Base: ${cfg.base ?? "none"}`, "");
+md.push(`Tree: ${current ?? "unknown"}`, `Base: ${cfg.base ?? "none"}`, `Level: ${lvl.level}${lvl.reasons.length ? ` (${lvl.reasons.slice(0, 4).join("; ")})` : ""}`, "");
 // Where this change comes from: the spec and task its acceptance was generated from (flow-check).
 const specRef = /^Spec:\s*(.+)$/m.exec(acceptanceText)?.[1].trim();
 const taskRef = /^Task:\s*(.+)$/m.exec(acceptanceText)?.[1].trim();
